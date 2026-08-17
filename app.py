@@ -92,22 +92,30 @@ with st.sidebar:
     st.caption("This is a simple local chat UI — do not store secrets in public repos.")
 
 def get_default_model(api_key):
-    """Get the latest available Gemini model from the API."""
+    """Get a currently supported Gemini model from the API."""
     try:
         genai.configure(api_key=api_key)
         models = genai.list_models()
-        # Find the latest gemini-pro or gemini-2.5 model available
+        preferred = [
+            "gemini-3.6-flash",
+            "gemini-3.0-flash",
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-pro"
+        ]
+        for preferred_name in preferred:
+            for model in models:
+                model_name = model.name.split("/")[-1]
+                if model_name == preferred_name or model_name.startswith(preferred_name):
+                    return model_name
         for model in models:
             model_name = model.name.split("/")[-1]
-            if "gemini-2.5" in model_name or "gemini-pro" in model_name:
+            if "gemini" in model_name.lower():
                 return model_name
-        # Fallback to the first generative model
-        for model in models:
-            if "generative" in model.name.lower():
-                return model.name.split("/")[-1]
-        return "gemini-2.5-flash"
+        return "gemini-3.6-flash"
     except Exception:
-        return "gemini-2.5-flash"
+        return "gemini-3.6-flash"
 
 def extract_gemini_text(response):
     """Support both legacy and modern google-generativeai response shapes."""
@@ -216,6 +224,8 @@ if submitted and user_input.strip():
                     model_name = os.environ.get("GEMINI_MODEL")
                 else:
                     model_name = get_default_model(api_key)
+                if not model_name.startswith("models/"):
+                    model_name = f"models/{model_name}"
                 prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:"
 
                 try:
