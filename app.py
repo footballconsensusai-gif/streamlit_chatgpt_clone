@@ -78,10 +78,10 @@ with st.sidebar:
             if st.button("Save", key=f"rename_save_{c['id']}"):
                 c["title"] = new_title
                 save_chats(st.session_state.chats)
-                st.experimental_rerun()
+                st.rerun()
         if cols[2].button("🗑", key=f"del_{c['id']}"):
             delete_chat(c["id"])
-            st.experimental_rerun()
+            st.rerun()
 
     st.markdown("---")
     st.markdown("API & Settings")
@@ -210,7 +210,7 @@ if submitted and user_input.strip():
     chat["messages"].append(amsg)
     save_chats(st.session_state.chats)
 
-    st.experimental_rerun()
+    st.rerun()
 
 # Small footer with tips
 st.sidebar.markdown("---")
