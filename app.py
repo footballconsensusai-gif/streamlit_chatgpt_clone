@@ -86,7 +86,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("API & Settings")
     st.write("Provide your Google API key as an environment variable named GOOGLE_API_KEY, or set it in Streamlit secrets as 'google_api_key'.")
-    st.write("Model is configurable via GEMINI_MODEL env var (default gemini-2.0-flash).")
+    st.write("Model is configurable via GEMINI_MODEL env var (default gemini-2.5-flash).")
     st.markdown("---")
     st.caption("This is a simple local chat UI — do not store secrets in public repos.")
 
@@ -160,7 +160,7 @@ with messages_box:
 with st.form("input_form", clear_on_submit=False):
     user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=120)
     cols = st.columns([1,1,1,6])
-    model_hint = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    model_hint = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     cols[3].markdown(f"**Model:** `{model_hint}`")
     submitted = st.form_submit_button("Send")
 
@@ -188,7 +188,7 @@ if submitted and user_input.strip():
         else:
             try:
                 genai.configure(api_key=api_key)
-                model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+                model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
                 prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:"
 
                 try:
