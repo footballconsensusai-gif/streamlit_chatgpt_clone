@@ -206,11 +206,21 @@ with input_container:
         submitted = col1.form_submit_button("Send")
 
 if submitted and (user_input.strip() or uploaded_files):
-    # Handle files if uploaded
+    # Handle files if uploaded - read their content
     file_content = ""
+    file_data = ""
     if uploaded_files:
         file_list = [f.name for f in uploaded_files]
         file_content = f"\n[Files uploaded: {', '.join(file_list)} ({len(uploaded_files)} file(s))]"
+        
+        # Read file contents
+        file_data = "\n\n--- FILE CONTENTS ---\n"
+        for uploaded_file in uploaded_files:
+            try:
+                content = uploaded_file.read().decode("utf-8", errors="ignore")
+                file_data += f"\n**File: {uploaded_file.name}**\n```\n{content[:2000]}\n```\n"
+            except Exception as e:
+                file_data += f"\n**File: {uploaded_file.name}** (Error reading: {e})\n"
     
     # append user message
     display_input = user_input + file_content
@@ -223,6 +233,9 @@ if submitted and (user_input.strip() or uploaded_files):
         "You are a helpful coding assistant. When the user asks for code or examples, respond in Markdown only. "
         "Include fenced code blocks with language identifiers for syntax highlighting. Keep explanations concise and show runnable examples where applicable."
     )
+
+    # Include file data in prompt if available
+    full_prompt_text = f"{system_instructions}\n\nUser: {user_input}{file_data}\nAssistant:"
 
     # Choose whether to call Gemini (if available) or produce a fallback
     reply_md = ""
@@ -243,14 +256,13 @@ if submitted and (user_input.strip() or uploaded_files):
                     model_name = get_default_model(api_key)
                 if not model_name.startswith("models/"):
                     model_name = f"models/{model_name}"
-                prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:"
 
                 try:
                     model = genai.GenerativeModel(model_name=model_name)
-                    response = model.generate_content(prompt)
+                    response = model.generate_content(full_prompt_text)
                     reply_md = extract_gemini_text(response)
                 except AttributeError:
-                    response = genai.generate_text(model=model_name, prompt=prompt, temperature=0.2)
+                    response = genai.generate_text(model=model_name, prompt=full_prompt_text, temperature=0.2)
                     reply_md = extract_gemini_text(response)
                     if not reply_md:
                         reply_md = str(response)
