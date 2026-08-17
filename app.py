@@ -170,9 +170,11 @@ if chat is None:
 # Main layout: messages and input
 st.header("Streamlit Gemini Chat")
 
-messages_box = st.container()
+# Create two containers: one for messages (scrollable), one for input (fixed)
+messages_container = st.container(height=500)
+input_container = st.container()
 
-with messages_box:
+with messages_container:
     for msg in chat["messages"]:
         if msg["role"] == "user":
             st.markdown(f"**You** — <span style='color:gray;font-size:12px'>{msg.get('time','')}</span>", unsafe_allow_html=True)
@@ -183,21 +185,35 @@ with messages_box:
             st.markdown(msg["content"])
         st.markdown("---")
 
-# Input area fixed at bottom of main column
-with st.form("input_form", clear_on_submit=False):
-    user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=120)
-    cols = st.columns([1,1,1,6])
-    # Use environment variable or detect from API
-    if os.environ.get("GEMINI_MODEL"):
-        model_hint = os.environ.get("GEMINI_MODEL")
-    else:
-        model_hint = "(auto-detected)"
-    cols[3].markdown(f"**Model:** `{model_hint}`")
-    submitted = st.form_submit_button("Send")
+# Input area fixed at bottom
+with input_container:
+    with st.form("input_form", clear_on_submit=False):
+        cols = st.columns([0.8, 4.2])
+        
+        with cols[0]:
+            uploaded_file = st.file_uploader("Upload file", label_visibility="collapsed")
+        
+        with cols[1]:
+            user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=80)
+        
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 6])
+        # Use environment variable or detect from API
+        if os.environ.get("GEMINI_MODEL"):
+            model_hint = os.environ.get("GEMINI_MODEL")
+        else:
+            model_hint = "(auto-detected)"
+        col4.markdown(f"**Model:** `{model_hint}`")
+        submitted = col1.form_submit_button("Send")
 
-if submitted and user_input.strip():
+if submitted and (user_input.strip() or uploaded_file):
+    # Handle file if uploaded
+    file_content = ""
+    if uploaded_file:
+        file_content = f"\n[File uploaded: {uploaded_file.name} ({uploaded_file.size} bytes)]"
+    
     # append user message
-    umsg = {"role": "user", "content": user_input, "time": str(datetime.utcnow())}
+    display_input = user_input + file_content
+    umsg = {"role": "user", "content": display_input, "time": str(datetime.utcnow())}
     chat["messages"].append(umsg)
     save_chats(st.session_state.chats)
 
