@@ -86,9 +86,53 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("API & Settings")
     st.write("Provide your Google API key as an environment variable named GOOGLE_API_KEY, or set it in Streamlit secrets as 'google_api_key'.")
-    st.write("Model is configurable via GEMINI_MODEL env var (default models/text-bison-001).")
+    st.write("Model is configurable via GEMINI_MODEL env var (default gemini-2.0-flash).")
     st.markdown("---")
     st.caption("This is a simple local chat UI — do not store secrets in public repos.")
+
+def extract_gemini_text(response):
+    """Support both legacy and modern google-generativeai response shapes."""
+    if response is None:
+        return ""
+
+    if hasattr(response, "text") and response.text:
+        return response.text
+
+    if isinstance(response, dict):
+        if response.get("text"):
+            return response["text"]
+        candidates = response.get("candidates")
+        if candidates:
+            first = candidates[0]
+            if isinstance(first, dict):
+                content = first.get("content", {})
+                if isinstance(content, dict):
+                    parts = content.get("parts", [])
+                    if parts:
+                        texts = []
+                        for part in parts:
+                            if isinstance(part, dict) and part.get("text"):
+                                texts.append(part["text"])
+                        if texts:
+                            return "".join(texts)
+                if first.get("text"):
+                    return first["text"]
+
+    if hasattr(response, "candidates"):
+        for candidate in response.candidates:
+            if hasattr(candidate, "content"):
+                content = candidate.content
+                if hasattr(content, "parts"):
+                    texts = []
+                    for part in content.parts:
+                        if hasattr(part, "text") and part.text:
+                            texts.append(part.text)
+                    if texts:
+                        return "".join(texts)
+            if hasattr(candidate, "text") and candidate.text:
+                return candidate.text
+
+    return str(response)
 
 # Current chat view
 chat = get_chat_by_id(st.session_state.current_chat)
@@ -116,7 +160,7 @@ with messages_box:
 with st.form("input_form", clear_on_submit=False):
     user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=120)
     cols = st.columns([1,1,1,6])
-    model_hint = os.environ.get("GEMINI_MODEL", "models/text-bison-001")
+    model_hint = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     cols[3].markdown(f"**Model:** `{model_hint}`")
     submitted = st.form_submit_button("Send")
 
@@ -135,25 +179,27 @@ if submitted and user_input.strip():
     # Choose whether to call Gemini (if available) or produce a fallback
     reply_md = ""
     if GENA_AVAILABLE:
-        # Configure API key
-        api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("google_api_key") if hasattr(st, 'secrets') else None
+        api_key = os.environ.get("GOOGLE_API_KEY")
+        if not api_key and hasattr(st, "secrets"):
+            api_key = st.secrets.get("google_api_key")
+
         if not api_key:
             reply_md = "**Error:** GOOGLE_API_KEY not found in environment or Streamlit secrets. Set the env var and restart."
         else:
             try:
                 genai.configure(api_key=api_key)
-                model = os.environ.get("GEMINI_MODEL", "models/text-bison-001")
-                prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:" 
-                # Use generate_text; API may differ by library version — this is the common interface
-                resp = genai.generate_text(model=model, prompt=prompt, temperature=0.2)
-                # Many libs return candidates or text field — try multiple patterns
-                if hasattr(resp, "text"):
-                    reply_md = resp.text
-                elif isinstance(resp, dict) and "candidates" in resp and resp["candidates"]:
-                    reply_md = resp["candidates"][0].get("content", resp["candidates"][0].get("text", ""))
-                else:
-                    # fallback to str(resp)
-                    reply_md = str(resp)
+                model_name = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+                prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:"
+
+                try:
+                    model = genai.GenerativeModel(model_name=model_name)
+                    response = model.generate_content(prompt)
+                    reply_md = extract_gemini_text(response)
+                except AttributeError:
+                    response = genai.generate_text(model=model_name, prompt=prompt, temperature=0.2)
+                    reply_md = extract_gemini_text(response)
+                    if not reply_md:
+                        reply_md = str(response)
             except Exception as e:
                 reply_md = f"**Error calling Gemini API:** {e}.\n\nMake sure GOOGLE_API_KEY and GEMINI_MODEL are configured."
     else:
