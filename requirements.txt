@@ -1,0 +1,4 @@
+streamlit>=1.20
+google-generative-ai>=0.2.0
+# Optional (if you prefer advanced rendering):
+# pygments

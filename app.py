@@ -1,0 +1,173 @@
+import os
+import json
+import streamlit as st
+from datetime import datetime
+
+# Try to import Google Generative AI client; if missing, app will show instructions
+try:
+    import google.generativeai as genai
+    GENA_AVAILABLE = True
+except Exception:
+    GENA_AVAILABLE = False
+
+# Data file for persistent chats
+DATA_FILE = os.path.join(os.path.dirname(__file__), "chats.json")
+
+# Utility: load / save
+def load_chats():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_chats(chats):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(chats, f, indent=2, ensure_ascii=False)
+
+# Initialize app session
+st.set_page_config(page_title="Streamlit Gemini Chat", layout="wide")
+
+if "chats" not in st.session_state:
+    st.session_state.chats = load_chats()
+
+if "current_chat" not in st.session_state:
+    # default chat
+    if len(st.session_state.chats) == 0:
+        st.session_state.chats = [
+            {"id": 1, "title": "New Chat", "created": str(datetime.utcnow()), "messages": []}
+        ]
+    st.session_state.current_chat = st.session_state.chats[0]["id"]
+
+# Helpers to work with chats
+def get_chat_by_id(cid):
+    for c in st.session_state.chats:
+        if c["id"] == cid:
+            return c
+    return None
+
+def add_chat(title="New Chat"):
+    new_id = max([c["id"] for c in st.session_state.chats]) + 1 if st.session_state.chats else 1
+    chat = {"id": new_id, "title": title, "created": str(datetime.utcnow()), "messages": []}
+    st.session_state.chats.insert(0, chat)
+    st.session_state.current_chat = new_id
+    save_chats(st.session_state.chats)
+
+def delete_chat(cid):
+    st.session_state.chats = [c for c in st.session_state.chats if c["id"] != cid]
+    if st.session_state.chats:
+        st.session_state.current_chat = st.session_state.chats[0]["id"]
+    else:
+        add_chat()
+    save_chats(st.session_state.chats)
+
+# Sidebar: chat list
+with st.sidebar:
+    st.title("Chats")
+    if st.button("+ New Chat"):
+        add_chat()
+
+    for c in st.session_state.chats:
+        cols = st.columns([6,1,1])
+        if cols[0].button(c["title"], key=f"select_{c['id']}"):
+            st.session_state.current_chat = c["id"]
+        if cols[1].button("✏️", key=f"rename_{c['id']}"):
+            new_title = st.text_input("Rename chat", value=c["title"], key=f"rename_input_{c['id']}")
+            if st.button("Save", key=f"rename_save_{c['id']}"):
+                c["title"] = new_title
+                save_chats(st.session_state.chats)
+                st.experimental_rerun()
+        if cols[2].button("🗑", key=f"del_{c['id']}"):
+            delete_chat(c["id"])
+            st.experimental_rerun()
+
+    st.markdown("---")
+    st.markdown("API & Settings")
+    st.write("Provide your Google API key as an environment variable named GOOGLE_API_KEY, or set it in Streamlit secrets as 'google_api_key'.")
+    st.write("Model is configurable via GEMINI_MODEL env var (default models/text-bison-001).")
+    st.markdown("---")
+    st.caption("This is a simple local chat UI — do not store secrets in public repos.")
+
+# Current chat view
+chat = get_chat_by_id(st.session_state.current_chat)
+if chat is None:
+    add_chat()
+    chat = get_chat_by_id(st.session_state.current_chat)
+
+# Main layout: messages and input
+st.header("Streamlit Gemini Chat")
+
+messages_box = st.container()
+
+with messages_box:
+    for msg in chat["messages"]:
+        if msg["role"] == "user":
+            st.markdown(f"**You** — <span style='color:gray;font-size:12px'>{msg.get('time','')}</span>", unsafe_allow_html=True)
+            st.markdown(msg["content"])  # user content
+        else:
+            st.markdown(f"**Assistant** — <span style='color:gray;font-size:12px'>{msg.get('time','')}</span>", unsafe_allow_html=True)
+            # assistant content should be markdown already (code blocks preserved)
+            st.markdown(msg["content"])
+        st.markdown("---")
+
+# Input area fixed at bottom of main column
+with st.form("input_form", clear_on_submit=False):
+    user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=120)
+    cols = st.columns([1,1,1,6])
+    model_hint = os.environ.get("GEMINI_MODEL", "models/text-bison-001")
+    cols[3].markdown(f"**Model:** `{model_hint}`")
+    submitted = st.form_submit_button("Send")
+
+if submitted and user_input.strip():
+    # append user message
+    umsg = {"role": "user", "content": user_input, "time": str(datetime.utcnow())}
+    chat["messages"].append(umsg)
+    save_chats(st.session_state.chats)
+
+    # Build prompt: instruct to respond in markdown with syntax-highlighted code when appropriate
+    system_instructions = (
+        "You are a helpful coding assistant. When the user asks for code or examples, respond in Markdown only. "
+        "Include fenced code blocks with language identifiers for syntax highlighting. Keep explanations concise and show runnable examples where applicable."
+    )
+
+    # Choose whether to call Gemini (if available) or produce a fallback
+    reply_md = ""
+    if GENA_AVAILABLE:
+        # Configure API key
+        api_key = os.environ.get("GOOGLE_API_KEY") or st.secrets.get("google_api_key") if hasattr(st, 'secrets') else None
+        if not api_key:
+            reply_md = "**Error:** GOOGLE_API_KEY not found in environment or Streamlit secrets. Set the env var and restart."
+        else:
+            try:
+                genai.configure(api_key=api_key)
+                model = os.environ.get("GEMINI_MODEL", "models/text-bison-001")
+                prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:" 
+                # Use generate_text; API may differ by library version — this is the common interface
+                resp = genai.generate_text(model=model, prompt=prompt, temperature=0.2)
+                # Many libs return candidates or text field — try multiple patterns
+                if hasattr(resp, "text"):
+                    reply_md = resp.text
+                elif isinstance(resp, dict) and "candidates" in resp and resp["candidates"]:
+                    reply_md = resp["candidates"][0].get("content", resp["candidates"][0].get("text", ""))
+                else:
+                    # fallback to str(resp)
+                    reply_md = str(resp)
+            except Exception as e:
+                reply_md = f"**Error calling Gemini API:** {e}.\n\nMake sure GOOGLE_API_KEY and GEMINI_MODEL are configured."
+    else:
+        reply_md = "_Google Generative AI client library not installed._\n\nTo enable Gemini responses install 'google-generative-ai' and set GOOGLE_API_KEY.\n\nFallback response (echo):\n\n````\n" + user_input + "\n````"
+
+    # Append assistant reply
+    amsg = {"role": "assistant", "content": reply_md, "time": str(datetime.utcnow())}
+    chat["messages"].append(amsg)
+    save_chats(st.session_state.chats)
+
+    st.experimental_rerun()
+
+# Small footer with tips
+st.sidebar.markdown("---")
+st.sidebar.markdown("Tips: ask for 'python example', 'javascript function', or 'sql query' to get code-formatted answers.")
+
+# End of app
