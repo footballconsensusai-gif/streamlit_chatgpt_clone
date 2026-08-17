@@ -191,7 +191,7 @@ with input_container:
         cols = st.columns([0.8, 4.2])
         
         with cols[0]:
-            uploaded_file = st.file_uploader("Upload file", label_visibility="collapsed")
+            uploaded_files = st.file_uploader("Upload files/folder", label_visibility="collapsed", accept_multiple_files=True)
         
         with cols[1]:
             user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=80)
@@ -205,11 +205,12 @@ with input_container:
         col4.markdown(f"**Model:** `{model_hint}`")
         submitted = col1.form_submit_button("Send")
 
-if submitted and (user_input.strip() or uploaded_file):
-    # Handle file if uploaded
+if submitted and (user_input.strip() or uploaded_files):
+    # Handle files if uploaded
     file_content = ""
-    if uploaded_file:
-        file_content = f"\n[File uploaded: {uploaded_file.name} ({uploaded_file.size} bytes)]"
+    if uploaded_files:
+        file_list = [f.name for f in uploaded_files]
+        file_content = f"\n[Files uploaded: {', '.join(file_list)} ({len(uploaded_files)} file(s))]"
     
     # append user message
     display_input = user_input + file_content
