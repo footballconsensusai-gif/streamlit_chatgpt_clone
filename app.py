@@ -86,9 +86,28 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("API & Settings")
     st.write("Provide your Google API key as an environment variable named GOOGLE_API_KEY, or set it in Streamlit secrets as 'google_api_key'.")
-    st.write("Model is configurable via GEMINI_MODEL env var (default gemini-2.5-flash).")
+    st.write("Model is configurable via GEMINI_MODEL env var. If not set, the app auto-detects the latest available model.")
+
     st.markdown("---")
     st.caption("This is a simple local chat UI — do not store secrets in public repos.")
+
+def get_default_model(api_key):
+    """Get the latest available Gemini model from the API."""
+    try:
+        genai.configure(api_key=api_key)
+        models = genai.list_models()
+        # Find the latest gemini-pro or gemini-2.5 model available
+        for model in models:
+            model_name = model.name.split("/")[-1]
+            if "gemini-2.5" in model_name or "gemini-pro" in model_name:
+                return model_name
+        # Fallback to the first generative model
+        for model in models:
+            if "generative" in model.name.lower():
+                return model.name.split("/")[-1]
+        return "gemini-2.5-flash"
+    except Exception:
+        return "gemini-2.5-flash"
 
 def extract_gemini_text(response):
     """Support both legacy and modern google-generativeai response shapes."""
@@ -160,7 +179,11 @@ with messages_box:
 with st.form("input_form", clear_on_submit=False):
     user_input = st.text_area("", key="user_input", placeholder="Ask a coding question or anything...", height=120)
     cols = st.columns([1,1,1,6])
-    model_hint = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    # Use environment variable or detect from API
+    if os.environ.get("GEMINI_MODEL"):
+        model_hint = os.environ.get("GEMINI_MODEL")
+    else:
+        model_hint = "(auto-detected)"
     cols[3].markdown(f"**Model:** `{model_hint}`")
     submitted = st.form_submit_button("Send")
 
@@ -188,7 +211,11 @@ if submitted and user_input.strip():
         else:
             try:
                 genai.configure(api_key=api_key)
-                model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+                # Use explicit model from env var, or auto-detect the latest available
+                if os.environ.get("GEMINI_MODEL"):
+                    model_name = os.environ.get("GEMINI_MODEL")
+                else:
+                    model_name = get_default_model(api_key)
                 prompt = f"{system_instructions}\n\nUser: {user_input}\nAssistant:"
 
                 try:
@@ -201,7 +228,7 @@ if submitted and user_input.strip():
                     if not reply_md:
                         reply_md = str(response)
             except Exception as e:
-                reply_md = f"**Error calling Gemini API:** {e}.\n\nMake sure GOOGLE_API_KEY and GEMINI_MODEL are configured."
+                reply_md = f"**Error calling Gemini API:** {e}.\n\nMake sure GOOGLE_API_KEY is valid."
     else:
         reply_md = "_Google Generative AI client library not installed._\n\nTo enable Gemini responses install 'google-generative-ai' and set GOOGLE_API_KEY.\n\nFallback response (echo):\n\n````\n" + user_input + "\n````"
 
